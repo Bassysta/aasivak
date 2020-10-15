@@ -129,3 +129,88 @@ command, one for resetting the swing mode, and one for resetting the fan speed).
       entity_id: climate.bedroom
       fan_mode: silent
 ```
+
+## Configuration with OpenHab2
+
+## Setup MQTT
+You need the MQTT Broker and Bridge: https://www.openhab.org/addons/bindings/mqtt/
+
+## Clone the Aasivak repo
+git clone https://www.github.com/dotvav/aasivak.git
+cd aasivak
+pip3 install -r requirements.txt
+
+## Change the configuration
+Follow the configuration process for HA, just disable mqtt discovery option.
+
+## Start Aasivak manually
+python3 Aasivak.py
+
+## Start Aasivak as a systemd service
+Create the following /etc/systemd/system/aasivak.service file (change the paths as required):
+[Unit]
+Description=Aasivak
+Documentation=https://github.com/dotvav/aasivak
+After=network.target
+
+[Service]
+Type=simple
+User=homeassistant
+WorkingDirectory=/usr/share/openhab2/aasivak
+ExecStart=/usr/bin/python3 /usr/share/openhab2/aasivak/Aasivak.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+You may want to start this after the MQTT broker or HA has started: add the appropriate After= statement.
+Run the following to enable and run the service, and see what its status is:
+sudo systemctl enable aasivak.service
+sudo systemctl start aasivak.service
+sudo systemctl status aasivak.service
+ 
+## MQTT Channel Discover
+Using MQTT.fx connect to your mqtt server, then using the “Scan” option in the “Subscribe” section you’ll able to see all the mqtt topic.
+Selecting the Config MQTT topic you’ll see all the command topic and the Modes Avaiables for: Vent, Oscillator and Conditioner State.
+
+## Openhab2 Thing Configuration:
+```shell script
+Thing topic conditioner "conditioner" @ "Conditioner" {
+	Channels:
+		//DEVICE STATE
+		Type string : connstatus "Conn Status" [stateTopic="hikumo/state/<yourtopic>/availability"]
+		Type string : devstatus "Device Status" [stateTopic="hikumo/state/<yourtopic>/mode", commandTopic="hikumo/command/<yourtopic>/mode"]
+		
+		//VENT
+		Type string : fanmode "Fan mode" [stateTopic="hikumo/state/<yourtopic>/fan_mode", commandTopic="hikumo/command/<yourtopic>/fan_mode"]
+		Type string : swingmode "Swing Mode" [stateTopic="hikumo/state/<yourtopic>/swing_mode", commandTopic="hikumo/command/<yourtopic>/swing_mode"]
+		Type number : target_temp "Target Temp" [stateTopic="hikumo/state/<yourtopic>/target_temp", commandTopic="hikumo/command/<yourtopic>/target_temp"]
+		Type number : temp "Temp" [stateTopic="hikumo/state/<yourtopic>/temp"]
+		
+		//RESET
+		Type switch : reset "Reset" [commandTopic="hikumo/reset"]
+```		
+		
+## Openhab2 Items Configuration(With Alexa integration Tag):
+```shell script
+// HIKUMO
+Group HiKumo "Conditioner" {alexa="Endpoint.Thermostat"}
+
+Switch HKReset "Reset" {channel="mqtt:topic:OpenhabBr:conditioner:reset"}
+String HKStatus "Connection State" {channel="mqtt:topic:OpenhabBr:conditioner:connstatus"}
+String HKDevStatus "Conditioner" (Conditioner)  {channel="mqtt:topic:OpenhabBr:conditioner:devstatus", alexa="ThermostatController.thermostatMode" [OFF="off",HEAT="heat",COOL="cool",ECO="eco",AUTO="auto"]}
+ 
+//Switch for Mode that are not compatible with Alexa Thermostat Voice Mode selection, you need a openhab rule to manage them.
+
+Switch HKVentSt "Conditioner: Vent Mode" (conditioner)  {alexa="Switchable"}
+Switch HKDrySt "Conditioner: Dry Mode" (conditioner)  {alexa="Switchable"}
+
+
+Group Fan  "Vent" {alexa="Endpoint.Fan"}
+
+Number HKFanMode "Vent Speed" (Fan) {channel="mqtt:topic:OpenhabBr:conditioner:fanmode", alexa="RangeController.rangeValue" [supportedRange="0:4:1",presets="1=@Value.Minimum:@Value.Low:Lowest,4=@Value.Maximum:@Value.High:Highest",friendlyNames="@Setting.FanSpeed,Speed",actionMappings="silent=0,low=1,medium=2,high=3,auto=4",stateMappings="silent=0,low=1,medium=2,high=3,auto=4"]}
+String HKSwingMode "Oscillazione" (Fan) {channel="mqtt:topic:OpenhabBr:conditioner:swingmode"}
+
+
+Number HKTarTemp "Temp conditioner [%.1f °C]" (conditioner) {channel="mqtt:topic:OpenhabBr:conditioner:target_temp", alexa="RangeController.rangeValue" [friendlyNames="@Setting.Temperature", supportedRange="16:24:1",presets="16=@Value.Minimum:@Value.Low:Lowest,24=@Value.Maximum:@Value.High:Highest",unitOfMeasure="Temperature.Celsius"]} 
+Number HKTemperature "Temp Room [%.1f °C]" (conditioner) {channel="mqtt:topic:OpenhabBr:conditioner:temp", alexa="TemperatureSensor.temperature" [scale="Celsius"]}
+```
